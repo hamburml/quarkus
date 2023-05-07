@@ -22,10 +22,11 @@ public class CORSHandlerTestCase {
     @DisplayName("Handles a preflight CORS request correctly")
     public void corsPreflightTestServlet() {
         String origin = "http://custom.origin.quarkus";
+        String method = "GET";
         String methods = "GET,POST";
         String headers = "X-Custom,content-type";
         given().header("Origin", origin)
-                .header("Access-Control-Request-Method", methods)
+                .header("Access-Control-Request-Method", method)
                 .header("Access-Control-Request-Headers", headers)
                 .when()
                 .options("/test").then()
@@ -39,10 +40,11 @@ public class CORSHandlerTestCase {
     @Test
     public void corsPreflightTestUnmatchedHeader() {
         String origin = "http://custom.origin.quarkus";
+        String method = "GET";
         String methods = "GET,POST";
         String headers = "X-Customs,content-types";
         given().header("Origin", origin)
-                .header("Access-Control-Request-Method", methods)
+                .header("Access-Control-Request-Method", method)
                 .header("Access-Control-Request-Headers", headers)
                 .when()
                 .options("/test").then()
@@ -57,10 +59,11 @@ public class CORSHandlerTestCase {
     @DisplayName("Handles a direct CORS request correctly")
     public void corsNoPreflightTestServlet() {
         String origin = "http://custom.origin.quarkus";
+        String method = "GET";
         String methods = "GET,POST";
         String headers = "x-custom,CONTENT-TYPE";
         given().header("Origin", origin)
-                .header("Access-Control-Request-Method", methods)
+                .header("Access-Control-Request-Method", method)
                 .header("Access-Control-Request-Headers", headers)
                 .when()
                 .get("/test").then()
