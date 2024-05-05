@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.lang.reflect.Method;
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -14,6 +15,7 @@ import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.RequestStreamHandler;
 import com.amazonaws.services.lambda.runtime.events.S3Event;
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.quarkus.amazon.lambda.runtime.handlers.S3EventInputReader;
@@ -53,12 +55,14 @@ public class AmazonLambdaRecorder {
         ObjectMapper objectMapper = AmazonLambdaMapperRecorder.objectMapper;
         Method handlerMethod = discoverHandlerMethod(handlerClass);
         Class<?> parameterType = handlerMethod.getParameterTypes()[0];
+        Type genericType = handlerMethod.getGenericParameterTypes()[0];
+        JavaType javaType = objectMapper.getTypeFactory().constructType(genericType);
         if (parameterType.equals(S3Event.class)) {
             objectReader = new S3EventInputReader(objectMapper);
         } else {
-            objectReader = new JacksonInputReader(objectMapper.readerFor(parameterType));
+            objectReader = new JacksonInputReader(objectMapper.readerFor(javaType));
         }
-        objectWriter = new JacksonOutputWriter(objectMapper.writerFor(handlerMethod.getReturnType()));
+        objectWriter = new JacksonOutputWriter(objectMapper.writerFor(javaType));
     }
 
     public void setBeanContainer(BeanContainer container) {
