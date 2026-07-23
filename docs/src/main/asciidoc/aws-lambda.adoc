@@ -730,6 +730,21 @@ Create your Alexa handler, as normal, by sub-classing the abstract `com.amazon.a
 
 That's all there is to it!
 
+== OpenTelemetry
+
+If you use the `quarkus-opentelemetry` extension together with `quarkus-amazon-lambda` (or one of the
+`quarkus-amazon-lambda-*` variants) and enable `quarkus.otel.simple`, OpenTelemetry metrics are automatically
+flushed right after every Lambda invocation, in addition to the batching-free behavior `quarkus.otel.simple`
+already provides for traces and logs. This happens without any extra configuration, as soon as both extensions
+are present.
+
+This matters because the AWS Lambda execution environment can be frozen or reclaimed as soon as an invocation
+finishes. A metrics `PeriodicMetricReader` relies on a background thread that only gets a chance to run between
+invocations, which is not guaranteed to happen before the environment is frozen -- so without this behavior,
+metrics could be delayed by minutes, or lost entirely. See xref:opentelemetry-metrics.adoc[the OpenTelemetry
+Metrics guide] and the `quarkus.otel.simple` configuration property in xref:opentelemetry.adoc[the OpenTelemetry
+guide] for more details.
+
 == SnapStart
 
 To optimize your application for Lambda SnapStart, check xref:aws-lambda-snapstart.adoc[the SnapStart Configuration Documentation].

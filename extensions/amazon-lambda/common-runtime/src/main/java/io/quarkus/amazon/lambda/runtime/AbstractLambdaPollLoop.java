@@ -16,6 +16,7 @@ import org.jboss.logging.MDC;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
 
+import io.quarkus.amazon.lambda.runtime.spi.LambdaInvocationEvents;
 import io.quarkus.runtime.Application;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.ShutdownContext;
@@ -138,6 +139,7 @@ public abstract class AbstractLambdaPollLoop {
                                         while (responseConnection.getInputStream().read() != -1) {
                                             // Read data
                                         }
+                                        LambdaInvocationEvents.fireSucceeded();
                                     }
                                 } else {
                                     Object input = null;
@@ -148,6 +150,7 @@ public abstract class AbstractLambdaPollLoop {
                                         }
                                         Object output = processRequest(input, createContext(requestConnection));
                                         postResponse(url, output);
+                                        LambdaInvocationEvents.fireSucceeded();
                                     }
                                 }
                             } catch (Exception e) {
@@ -160,6 +163,7 @@ public abstract class AbstractLambdaPollLoop {
 
                                 postError(AmazonLambdaApi.invocationError(baseUrl, requestId),
                                         new FunctionError(e.getClass().getName(), e.getMessage()));
+                                LambdaInvocationEvents.fireFailed(e);
                                 continue;
                             }
 

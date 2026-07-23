@@ -17,6 +17,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.quarkus.amazon.lambda.runtime.handlers.CollectionInputReader;
 import io.quarkus.amazon.lambda.runtime.handlers.S3EventInputReader;
+import io.quarkus.amazon.lambda.runtime.spi.LambdaInvocationEvents;
 import io.quarkus.arc.runtime.BeanContainer;
 import io.quarkus.runtime.LaunchMode;
 import io.quarkus.runtime.RuntimeValue;
@@ -91,15 +92,24 @@ public class AmazonLambdaRecorder {
      * @throws IOException
      */
     public static void handle(InputStream inputStream, OutputStream outputStream, Context context) throws IOException {
-        if (streamHandlerClass != null) {
-            RequestStreamHandler handler = beanContainer.beanInstance(streamHandlerClass);
-            handler.handleRequest(inputStream, outputStream, context);
-        } else {
-            Object request = objectReader.readValue(inputStream);
-            RequestHandler handler = beanContainer.beanInstance(handlerClass);
-            Object response = handler.handleRequest(request, context);
-            objectWriter.writeValue(outputStream, response);
+        try {
+            if (streamHandlerClass != null) {
+                RequestStreamHandler handler = beanContainer.beanInstance(streamHandlerClass);
+                handler.handleRequest(inputStream, outputStream, context);
+            } else {
+                Object request = objectReader.readValue(inputStream);
+                RequestHandler handler = beanContainer.beanInstance(handlerClass);
+                Object response = handler.handleRequest(request, context);
+                objectWriter.writeValue(outputStream, response);
+            }
+        } catch (RuntimeException | IOException e) {
+            // The execution environment may be frozen or reclaimed as soon as this method returns, so this is
+            // the last reliable opportunity for interested CDI beans (e.g. telemetry exporters) to flush any
+            // buffered work.
+            LambdaInvocationEvents.fireFailed(e);
+            throw e;
         }
+        LambdaInvocationEvents.fireSucceeded();
     }
 
     public void chooseHandlerClass(List<RequestHandlerDefinition> unnamedHandlerDefinitions,

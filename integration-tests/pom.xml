@@ -304,6 +304,7 @@
                 <module>amazon-lambda-rest-funqy</module>
                 <module>amazon-lambda-rest-servlet</module>
                 <module>amazon-lambda-http-resteasy-reactive</module>
+                <module>amazon-lambda-opentelemetry</module>
                 <module>container-image</module>
                 <module>kubernetes</module>
                 <module>kubernetes-client</module>

@@ -43,6 +43,12 @@ public interface OTelBuildConfig {
      * telemetry data right away.
      * This is recommended for serverless applications.
      * <p>
+     * When the application is built as an AWS Lambda function, enabling this also forces metrics to be
+     * flushed after every invocation, instead of relying purely on the periodic export interval
+     * ({@code quarkus.otel.metric.export.interval}). AWS Lambda execution environments can be frozen or
+     * reclaimed as soon as an invocation finishes, so the periodic export might otherwise never get a
+     * chance to run, delaying or losing metrics.
+     * <p>
      * Defaults to <code>false</code>.
      */
     @WithDefault("false")

@@ -1,0 +1,142 @@
+Flush OpenTelemetry metrics after every AWS Lambda invocation
+
+Problem
+-------
+
+`quarkus.otel.simple` is documented as the recommended setting for serverless
+applications: it switches the trace `SpanProcessor` and the log
+`LogRecordProcessor` to their "simple" variants, which export each span/log
+record right away instead of batching them.
+
+Metrics are not covered by this flag. Regardless of `quarkus.otel.simple`,
+metrics are always collected by a `PeriodicMetricReader` that exports on a
+fixed schedule (`quarkus.otel.metric.export.interval`, defaulting to one
+minute), driven by a background thread that is completely decoupled from any
+individual request or invocation.
+
+This is fine for a long-running server, but not for AWS Lambda: the execution
+environment can be frozen or reclaimed as soon as an invocation finishes, so
+the periodic reader's background thread is not guaranteed to ever get a
+chance to run before that happens. In practice this means metric data points
+recorded during an invocation can sit unexported for an unpredictable amount
+of time -- we have observed response-duration metrics showing up more than a
+minute late in Dynatrace -- or be lost entirely if the environment is
+reclaimed before the reader ever fires. This happens whether or not the
+function uses SnapStart, and independently of whether the OTLP destination is
+a remote collector or, as in our setup, an OpenTelemetry Collector running in
+its own Lambda layer right next to the function: the collector can only
+forward what Quarkus has actually pushed to it, and today nothing forces that
+push to happen before the environment is frozen.
+
+There is also no good reason to wait for a periodic interval in this
+environment in the first place: a Lambda invocation is a natural, well
+defined boundary after which it is both safe and cheap to flush whatever
+metrics were recorded, since there can only be one invocation in flight per
+execution environment at a time.
+
+Solution
+--------
+
+When both `quarkus-amazon-lambda` and `quarkus-opentelemetry` are present and
+`quarkus.otel.simple=true`, metrics are now flushed automatically right after
+every Lambda invocation completes -- successful or not -- in addition to the
+existing batching-free behavior for traces and logs. `quarkus.otel.simple`
+now consistently means "no batching, on any signal" for a serverless
+deployment.
+
+The two extensions remain decoupled, following the same pattern already used
+for e.g. the OpenTelemetry/Scheduler integration:
+
+- A new, minimal `quarkus-amazon-lambda-runtime-spi` module defines a sealed
+  `LambdaInvocationCompletedEvent` (with `Succeeded`/`Failed` variants).
+  `quarkus-amazon-lambda` fires this CDI event once per invocation (success
+  or failure), right after the response has been posted back and before
+  polling for the next invocation. Firing is isolated: an exception from any
+  observer of this event is caught and logged, never propagated, so a bug in
+  a telemetry exporter can never break the actual invocation lifecycle it is
+  only supposed to observe.
+- A new `Capability.AMAZON_LAMBDA` lets other extensions detect that they are
+  running inside an AWS Lambda function without depending on
+  `quarkus-amazon-lambda` directly.
+- `quarkus-opentelemetry` optionally depends on the new SPI module (the same
+  way it already optionally depends on `quarkus-scheduler-spi`, `quarkus-grpc`,
+  etc.) and, only when `quarkus.otel.simple=true` and the AWS Lambda capability
+  is present, registers a small CDI bean that observes the event and calls
+  `forceFlush()` on the SDK's `MeterProvider`, bounded by a new
+  `quarkus.otel.metric.lambda-flush-timeout` property (default 100ms).
+
+Design decisions
+-----------------
+
+Why a dedicated, short timeout instead of reusing
+`quarkus.otel.experimental.shutdown-wait-time`?
+
+That property is documented as "the maximum amount of time Quarkus will wait
+for the OpenTelemetry SDK to flush unsent spans and shutdown" -- a cost paid
+once, when the whole application shuts down. Reusing its 2-second default for
+a per-invocation flush would mean every single Lambda invocation silently
+pays up to 2 extra seconds whenever the OTLP destination is slow or
+unreachable, with no independent way to tune that down.
+`quarkus.otel.metric.lambda-flush-timeout` is a separate property so it can
+be tuned independently (defaulting to 100ms, since the common setup is a
+local Collector running in its own Lambda layer, i.e. a loopback call)
+without affecting `shutdown-wait-time`'s own, unrelated, one-time use.
+
+Why don't traces and logs need an equivalent timeout?
+
+`quarkus.otel.simple` already makes traces and logs export "fire-and-forget":
+`SimpleSpanProcessor.onEnd()` and `SimpleLogRecordProcessor.onEmit()` kick off
+the exporter call and immediately return, without ever waiting for it to
+complete (there is no `.join()` anywhere in that path, neither in the
+OpenTelemetry SDK nor in Quarkus' own `SimpleSpanProcessorWithBatchShutdown`
+wrapper). Metrics have no equivalent per-item immediate-export mode -- the
+only way to force metrics out ahead of the periodic export interval is
+`SdkMeterProvider.forceFlush()`, and `forceFlush()` itself is also
+non-blocking. We are the ones introducing the only blocking wait in this
+whole picture, because without waiting for `forceFlush()` to actually
+complete, we would have no guarantee it got a chance to run before the
+Lambda execution environment freezes -- which would defeat the purpose of
+this change entirely. Since we are the only ones adding a blocking wait, we
+are also the only ones that need a bounded timeout for it.
+
+(Side note, not addressed by this change: because the "simple" processors for
+traces/logs never wait either, they carry an analogous, smaller residual
+risk -- if the environment freezes in the exact window while a span/log
+export is still in flight, it could be lost the same way metrics were. This
+has apparently been an accepted trade-off so far, presumably because a single
+span/log export is fast enough to usually complete before the environment
+gets a chance to freeze. It is a pre-existing characteristic of
+`quarkus.otel.simple`, not something introduced by this change.)
+
+Dependencies affected
+----------------------
+
+Because the event is fired from the shared Lambda invocation loop used by
+every flavor of the extension, this change applies to any application using
+`quarkus-amazon-lambda` together with `quarkus-opentelemetry`, including:
+
+- quarkus-amazon-lambda (plain `RequestHandler`/`RequestStreamHandler`)
+- quarkus-amazon-lambda-http, quarkus-amazon-lambda-rest-* (API Gateway/ALB
+  flavors, all of which depend on quarkus-amazon-lambda)
+- quarkus-funqy-amazon-lambda (depends on quarkus-amazon-lambda as well)
+
+It does not affect other serverless bindings that do not depend on
+quarkus-amazon-lambda and therefore never provide `Capability.AMAZON_LAMBDA`,
+such as quarkus-azure-functions, quarkus-azure-functions-http,
+quarkus-google-cloud-functions, quarkus-google-cloud-functions-http, or
+quarkus-funqy-google-cloud-functions/quarkus-funqy-knative-events. Those
+extensions are unaffected by this change and would need their own,
+equivalent integration if the same problem needs to be addressed there.
+
+Applications using quarkus-opentelemetry without quarkus-amazon-lambda are
+entirely unaffected: the new optional dependency is a small, dependency-free
+jar, and the new bean is only registered when the AWS Lambda capability is
+actually present.
+
+A new integration test (amazon-lambda-opentelemetry) exercises this behavior
+end-to-end with the metric export interval deliberately set to one hour, so
+the test can only pass because of the invocation-triggered flush.
+
+Release note: Metrics are now flushed automatically after every AWS Lambda
+invocation when `quarkus.otel.simple` is enabled, preventing metrics from
+being delayed or lost when the Lambda execution environment is frozen.

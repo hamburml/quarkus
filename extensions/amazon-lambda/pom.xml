@@ -16,6 +16,7 @@
     <packaging>pom</packaging>
 
     <modules>
+        <module>runtime-spi</module>
         <module>common-runtime</module>
         <module>event-server</module>
         <module>common-deployment</module>

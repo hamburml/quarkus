@@ -84,6 +84,11 @@
             <artifactId>quarkus-scheduler-spi</artifactId>
             <optional>true</optional>
         </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-amazon-lambda-runtime-spi</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <!-- OpenTelemetry Dependencies -->
         <dependency>

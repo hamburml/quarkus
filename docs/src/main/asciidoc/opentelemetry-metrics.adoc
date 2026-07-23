@@ -708,6 +708,18 @@ The native image assessment above was performed using GraalVM 23.0.2.
 The Micrometer to OpenTelemetry bridge unifies all telemetry in Quarkus. It generates Micrometer's metrics but sends
 them along the OpenTelemetry telemetry output. For more details please visit the xref:telemetry-micrometer-to-opentelemetry.adoc[Micrometer and OpenTelemetry extension].
 
+== Serverless environments
+
+Metrics are collected by a `PeriodicMetricReader` and exported on a fixed interval (`quarkus.otel.metric.export.interval`,
+defaulting to one minute), independently of any individual request or invocation. This works well for long-running
+processes, but on AWS Lambda the execution environment can be frozen or reclaimed as soon as an invocation finishes,
+so the periodic export might not get a chance to run before that happens.
+
+If the `quarkus-amazon-lambda` extension (or one of its variants) is present together with `quarkus-opentelemetry`,
+enabling `quarkus.otel.simple` (see xref:opentelemetry.adoc#configuration-reference[the OpenTelemetry configuration
+reference]) also flushes metrics right after every Lambda invocation, so that data points are not delayed or lost.
+See xref:aws-lambda.adoc#opentelemetry[the AWS Lambda guide] for more details.
+
 == Exporters
 See the main xref:opentelemetry.adoc#exporters[OpenTelemetry Guide exporters] section.
 

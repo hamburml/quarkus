@@ -27,6 +27,11 @@ public interface Capability {
     String AGROAL = QUARKUS_PREFIX + ".agroal";
 
     /**
+     * AWS Lambda function support
+     */
+    String AMAZON_LAMBDA = QUARKUS_PREFIX + ".amazon.lambda";
+
+    /**
      * An assistant implementation
      */
     String ASSISTANT = QUARKUS_PREFIX + ".assistant";
